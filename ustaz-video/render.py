@@ -3,9 +3,10 @@
 «Ұстазым» — әннің 1-куплеті мен қайырмасына кинетикалық видео (лирик-видео).
 
 Стиль: кремдік фон + мектеп тақырыбындағы дудл-өрнек,
+  * (кіріспесіз, бірден ән сөзімен басталады)
   * куплет  — чаттағыдай сөздер жолаққа "теріледі", біткен жол хабарлама болып жоғары ұшады;
-  * қайырма — үлкен қызыл кинетикалық типография, әр сөзге стикер ырғақпен "секіреді";
-  * мектеп ғимараты — полароид-стикер ретінде (интро, куплет, қайырма, соңы).
+  * қайырма — біресе ҮЛКЕН, біресе кішкентай сөздер (кинетикалық типография), әр сөзге стикер ырғақпен "секіреді";
+  * мектеп ғимараты — полароид-стикер ретінде (куплет, қайырма, соңы).
 
 Барлық уақыт пен мәтін lyrics.json ішінде. Іске қосу:
     python3 render.py --audio path/to/song.mp3 --out ustazym.mp4
@@ -278,34 +279,6 @@ def draw_sticker(canvas, name, x, y, size, t, t0, t_end, clock, rot0=0.0, label=
         paste(canvas, tag, x + size * 0.38, y + size * 0.32, s * bump, rot - 8)
 
 # ----------------------------------------------------------------- scenes
-def scene_intro(canvas, t, cfg, clock, bgs):
-    sc = cfg["intro"]
-    end = sc["end"]
-    out = clamp((t - (end - 0.35)) / 0.35)
-    zoom = 1 - 0.15 * ease_in_cubic(out)
-    # building polaroid
-    tp = (t - 0.43) / 0.6
-    if tp > 0:
-        s = ease_out_back(tp, 1.4) * zoom * (1 + 0.025 * clock.pulse(t))
-        paste(canvas, polaroid(), 560, 560 + 30 * math.sin(t * 1.3), 0.82 * s,
-              -5 + 3 * math.sin(t * 0.9), 1 - out)
-    # title
-    title = text_img(sc["title"], F_BLACK, 165, RED)
-    tt = (t - 2.41) / 0.4
-    if tt > 0:
-        paste(canvas, title, 1430, 480, ease_out_back(tt) * zoom * (1 + 0.04 * clock.pulse(t)), 0, 1 - out)
-    sub = text_img(sc["subtitle"], F_XBOLD, 54, DARKRED, 2)
-    ts = (t - 3.40) / 0.35
-    if ts > 0:
-        paste(canvas, sub, 1430 + 80 * (1 - ease_out_cubic(ts)), 610, zoom, 0, clamp(ts) * (1 - out))
-    for name, t0, x, y, sz, r in [("1f4da", 1.42, 1180, 200, 230, -10),
-                                  ("1f34e", 2.90, 1760, 250, 190, 12),
-                                  ("1f514", 3.90, 1700, 820, 210, -8),
-                                  ("270f-fe0f", 4.89, 1150, 830, 210, 15),
-                                  ("1f393", 5.39, 250, 210, 230, -12)]:
-        draw_sticker(canvas, name, x, y, sz, t, t0, end, clock, r)
-
-
 def bubble_img(text, color, fsize, pad_x, h):
     ti = text_img(text, F_MED, fsize, WHITE)
     w = ti.width + pad_x * 2
@@ -419,96 +392,133 @@ def scene_verse(canvas, t, cfg, clock, bgs):
         draw_sticker(canvas, name, sx, sy, size, t, t0, ln["end"], clock, sr, label, seed=widx)
 
 
-CHORUS_SLOTS = [(250, 190, -10), (1670, 200, 9), (250, 830, 8), (1670, 820, -7), (960, 140, 4)]
+SIZES = {"L": 210, "M": 112, "S": 60}
+STICKERS_RIGHT = [(1640, 250, 9), (1700, 640, -7), (1440, 860, 6)]
+STICKERS_LEFT = [(290, 250, -10), (230, 640, 8), (480, 860, -5)]
+STICKERS_RIGHT_WITH_PHOTO = [(1720, 640, -6), (1500, 860, 8), (1740, 880, 5)]
+
+
+def parse_card(text):
+    rows = []
+    for part in text.split("/"):
+        row = []
+        for wd in part.split():
+            if wd.startswith("!"):
+                row.append((wd[1:].upper(), "L"))
+            elif wd.startswith("~"):
+                row.append((wd[1:].upper(), "M"))
+            else:
+                row.append((wd.upper(), "S"))
+        rows.append(row)
+    return rows
+
+
+def word_style(cls, big_size):
+    if cls == "L":
+        return F_BLACK, big_size, RED, 0
+    if cls == "M":
+        return F_BLACK, SIZES["M"], RED, 0
+    return F_XBOLD, SIZES["S"], DARKRED, 6
 
 
 def scene_chorus(canvas, t, cfg, clock, bgs):
     cards = cfg["chorus"]
-    card = cards[0]
-    for c in cards:
+    ci = 0
+    for i, c in enumerate(cards):
         if t >= c["start"]:
-            card = c
+            ci = i
+    card = cards[ci]
     st, en = card["start"], card["end"]
     out = clamp((t - (en - 0.14)) / 0.14)
     shift = -70 * ease_in_cubic(out)
     fade = 1 - out
+    rows = parse_card(card["text"])
+    left = card.get("side", "left") == "left"
 
-    # ticker of pink ghost text along the bottom
-    ghost = text_img(card["hero"], F_BLACK, 150, PINK)
+    # pink ghost ticker with the card's big word
+    big_word = next((w for r in rows for w, c in r if c == "L"), rows[0][0][0])
+    ghost = text_img(big_word, F_BLACK, 150, PINK)
     step = ghost.width + 90
-    x = -((t * 260) % step)
+    x = -((t * 260) % step) if left else -(step - (t * 260) % step)
     while x < W:
         paste(canvas, ghost, x + ghost.width / 2, 905 + ghost.height / 2)
         x += step
 
-    # hero words
-    hero_words = card["hero"].split(" ")
-    size = 220
-    fh = font(F_BLACK, size)
-    total = sum(fh.getlength(w) for w in hero_words) + 60 * (len(hero_words) - 1)
-    if total > 1500:
-        size = int(size * 1500 / total)
-        fh = font(F_BLACK, size)
-        total = sum(fh.getlength(w) for w in hero_words) + 60 * (len(hero_words) - 1)
+    # measure rows; shrink the big size if the longest row is too wide
+    big = SIZES["L"]
+    def row_width(row, big):
+        tot = 0
+        for k, (wd, cls) in enumerate(row):
+            fp, sz, _, sp = word_style(cls, big)
+            tot += font(fp, sz).getlength(wd) + sp * (len(wd) - 1)
+            if k:
+                tot += sz * 0.35
+        return tot
+    while max(row_width(r, big) for r in rows) > 1150 and big > 90:
+        big -= 6
+    widths = [row_width(r, big) for r in rows]
+    heights = [max(word_style(c, big)[1] for _, c in r) * 1.18 + 12 for r in rows]
+    block_w = max(widths)
+    cx = 740 if left else 1160
+    bx0 = cx - block_w / 2
+    y = 470 - sum(heights) / 2 + shift
     beat = 1 + 0.035 * clock.pulse(t)
-    hx0 = W / 2 - total / 2
-    hy = 520 + shift
-    x = hx0
-    for k, wd in enumerate(hero_words):
-        img = text_img(wd, F_BLACK, size, RED)
-        w = fh.getlength(wd)
-        t0 = card["w_hero"][min(k, len(card["w_hero"]) - 1)]
-        p = (t - t0) / 0.22
-        if p > 0:
-            s = (1.45 - 0.45 * ease_out_back(p, 1.2)) * beat
-            paste(canvas, img, x + w / 2, hy, s, 0, clamp(p * 1.6) * fade)
-        x += w + 60
-
-    # small top / bottom lines (word by word)
-    def small_line(text, times, y, align, fsize, col):
-        if not text:
-            return
-        words = text.split(" ")
-        f = font(F_XBOLD, fsize)
-        gap = fsize * 0.45
-        tw = sum(f.getlength(w) for w in words) + gap * (len(words) - 1)
-        xx = hx0 if align == "left" else hx0 + total - tw
-        for k, wd in enumerate(words):
-            w = f.getlength(wd)
-            t0 = times[min(k, len(times) - 1)] if times else st
-            p = (t - t0) / 0.18
+    times = card["w"]
+    wi = 0
+    for ri, row in enumerate(rows):
+        # staggered alignment like the reference: left / centre / right
+        align = ["left", "center", "right"][ri % 3] if len(rows) == 3 else "left"
+        if align == "left":
+            xx = bx0
+        elif align == "center":
+            xx = bx0 + (block_w - widths[ri]) / 2
+        else:
+            xx = bx0 + block_w - widths[ri]
+        rh = heights[ri]
+        for k, (wd, cls) in enumerate(row):
+            fp, sz, col, sp = word_style(cls, big)
+            w = font(fp, sz).getlength(wd) + sp * (len(wd) - 1)
+            t0 = times[min(wi, len(times) - 1)]
+            wi += 1
+            p = (t - t0) / (0.22 if cls != "S" else 0.18)
             if p > 0:
-                img = text_img(wd, F_XBOLD, fsize, col)
-                paste(canvas, img, xx + w / 2, y - 30 * (1 - ease_out_cubic(p)), 1, 0, clamp(p) * fade)
-            xx += w + gap
+                img = text_img(wd, fp, sz, col, sp)
+                cy = y + rh / 2
+                if cls == "S":
+                    paste(canvas, img, xx + w / 2, cy - 30 * (1 - ease_out_cubic(p)), 1, 0, clamp(p) * fade)
+                else:
+                    s = (1.45 - 0.45 * ease_out_back(p, 1.2)) * (beat if cls == "L" else 1)
+                    paste(canvas, img, xx + w / 2, cy, s, 0, clamp(p * 1.6) * fade)
+            xx += w + sz * 0.35
+        y += rh
 
-    small_line(card.get("top", ""), card.get("w_top", []), hy - size * 0.68 - 10, "left", 60, DARKRED)
-    small_line(card.get("bottom", ""), card.get("w_bottom", []), hy + size * 0.70 + 10, "right", 66, DARKRED)
-
-    # stickers
+    # stickers on the opposite side of the text
+    has_photo = any(s[0] == "mektep" for s in card.get("stickers", []))
+    if left:
+        slots = STICKERS_RIGHT_WITH_PHOTO if has_photo else STICKERS_RIGHT
+    else:
+        slots = STICKERS_LEFT
+    k = 0
     for i, stck in enumerate(card.get("stickers", [])):
         name, t0 = stck[0], stck[1]
         if name == "mektep":
-            draw_sticker(canvas, name, 1480, 230, 640, t, t0, en, clock, 6, seed=i)
+            draw_sticker(canvas, name, 1570, 250, 560, t, t0, en, clock, 6, seed=i)
         else:
-            sx, sy, sr = CHORUS_SLOTS[i % len(CHORUS_SLOTS)]
-            draw_sticker(canvas, name, sx, sy, 260, t, t0, en, clock, sr, seed=i)
+            sx, sy, sr = slots[k % len(slots)]
+            k += 1
+            draw_sticker(canvas, name, sx, sy, 270, t, t0, en, clock, sr, seed=i)
 
 
 def scene_outro(canvas, t, cfg, clock, bgs):
     sc = cfg["outro"]
     st, en = sc["start"], sc["end"]
     p = (t - st) / 0.55
-    paste(canvas, polaroid(), 960, 450, 1.05 * ease_out_back(p, 1.3) * (1 + 0.02 * clock.pulse(t)),
+    paste(canvas, polaroid(), 960, 520, 1.15 * ease_out_back(p, 1.3) * (1 + 0.02 * clock.pulse(t)),
           -3 + 2 * math.sin(t))
-    tx = text_img(sc["text"], F_BLACK, 110, RED)
-    q = (t - st - 0.5) / 0.35
-    if q > 0:
-        paste(canvas, tx, 960, 900, ease_out_back(q))
-    draw_sticker(canvas, "1faf6", 280, 250, 280, t, st + 0.25, en + 5, clock, -10)
-    draw_sticker(canvas, "1f490", 1650, 260, 300, t, st + 0.75, en + 5, clock, 10)
-    draw_sticker(canvas, "1f3eb", 250, 640, 260, t, st + 1.25, en + 5, clock, 8)
-    draw_sticker(canvas, "2764-fe0f", 1680, 640, 240, t, st + 1.75, en + 5, clock, -8)
+    draw_sticker(canvas, "1faf6", 290, 260, 280, t, st + 0.25, en + 5, clock, -10)
+    draw_sticker(canvas, "1f490", 1640, 270, 300, t, st + 0.75, en + 5, clock, 10)
+    draw_sticker(canvas, "1f3eb", 270, 820, 260, t, st + 1.25, en + 5, clock, 8)
+    draw_sticker(canvas, "2764-fe0f", 1660, 820, 240, t, st + 1.75, en + 5, clock, -8)
 
 
 # ----------------------------------------------------------------- frame
@@ -517,9 +527,7 @@ def render_frame(t, cfg, clock, bgs):
         canvas = bgs["light"].copy()
     else:
         canvas = bgs["full"].copy()
-    if t < cfg["intro"]["end"]:
-        scene_intro(canvas, t, cfg, clock, bgs)
-    elif t < cfg["chorus"][0]["start"]:
+    if t < cfg["chorus"][0]["start"]:
         scene_verse(canvas, t, cfg, clock, bgs)
     elif t < cfg["outro"]["start"]:
         scene_chorus(canvas, t, cfg, clock, bgs)
@@ -537,7 +545,7 @@ def render_frame(t, cfg, clock, bgs):
 
     # fade in/out
     a0, a1 = cfg["audio_start"], cfg["audio_end"]
-    fade = min(clamp((t - a0) / 0.4), clamp((a1 - t) / 1.0))
+    fade = min(clamp((t - a0) / 0.15), clamp((a1 - t) / 1.0))
     if fade < 1:
         black = Image.new("RGBA", (W, H), (0, 0, 0, int(255 * (1 - fade))))
         canvas.alpha_composite(black)
